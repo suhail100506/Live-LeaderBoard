@@ -98,4 +98,72 @@ export class AuthController {
       res.status(500).json({ success: false, message: error.message });
     }
   }
+
+  static async changePassword(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Authentication required.' });
+        return;
+      }
+
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        res.status(400).json({ success: false, message: 'Current password and new password are required.' });
+        return;
+      }
+
+      // 1. Fetch user with passwordHash
+      const user = await User.findById(req.user._id);
+      if (!user) {
+        res.status(404).json({ success: false, message: 'User not found.' });
+        return;
+      }
+
+      // 2. Verify current password
+      const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isMatch) {
+        res.status(400).json({ success: false, message: 'Current password is incorrect.' });
+        return;
+      }
+
+      // 3. Ensure new password is different from current password
+      if (currentPassword === newPassword) {
+        res.status(400).json({ success: false, message: 'New password must be different from your current password.' });
+        return;
+      }
+
+      // 4. Validate password requirements
+      if (newPassword.length < 8) {
+        res.status(400).json({ success: false, message: 'Password must contain at least 8 characters.' });
+        return;
+      }
+      if (!/[A-Z]/.test(newPassword)) {
+        res.status(400).json({ success: false, message: 'Password must contain at least one uppercase letter.' });
+        return;
+      }
+      if (!/[a-z]/.test(newPassword)) {
+        res.status(400).json({ success: false, message: 'Password must contain at least one lowercase letter.' });
+        return;
+      }
+      if (!/[0-9]/.test(newPassword)) {
+        res.status(400).json({ success: false, message: 'Password must contain at least one number.' });
+        return;
+      }
+
+      // 5. Hash new password
+      const salt = await bcrypt.genSalt(10);
+      user.passwordHash = await bcrypt.hash(newPassword, salt);
+      await user.save();
+
+      res.status(200).json({
+        success: true,
+        message: 'Password changed successfully.'
+      });
+    } catch (error: any) {
+      console.error('[AuthController.changePassword] Error:', error);
+      res.status(500).json({ success: false, message: 'Server error while changing password.', error: error.message });
+    }
+  }
 }
+

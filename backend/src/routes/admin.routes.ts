@@ -18,7 +18,9 @@ router.delete('/questions/:id', AdminController.deleteQuestion);
 
 // Submissions & Runtime Marking
 router.get('/submissions', AdminController.getSubmissions);
+router.get('/submissions/student/:studentId', AdminController.getStudentSubmissions);
 router.post('/evaluate', AdminController.evaluateSubmission);
+router.delete('/submissions/:id', AdminController.removeSubmission);
 
 // Audit & Controls
 router.get('/audit-logs', AdminController.getAuditLogs);

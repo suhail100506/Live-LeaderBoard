@@ -55,6 +55,7 @@ export interface LeaderboardEntry {
   completedQuestions: number;
   totalAssignedQuestions: number;
   lastEvaluationTime: string | null;
+  hasSubmission?: boolean;
 }
 
 export interface SubmissionItem {

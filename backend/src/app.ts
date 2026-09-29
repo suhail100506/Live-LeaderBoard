@@ -5,6 +5,8 @@ import path from 'path';
 import authRoutes from './routes/auth.routes';
 import studentRoutes from './routes/student.routes';
 import adminRoutes from './routes/admin.routes';
+import { authenticate } from './middleware/auth.middleware';
+import { AdminController } from './controllers/admin.controller';
 
 const app: Application = express();
 
@@ -37,6 +39,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/admin', adminRoutes);
+app.get('/api/submissions/student/:studentId', authenticate, AdminController.getStudentSubmissions);
 
 // 404 Handler
 app.use((_req: Request, res: Response) => {

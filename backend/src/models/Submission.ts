@@ -7,6 +7,7 @@ export interface ISubmission extends Document {
   studentId: mongoose.Types.ObjectId;
   questionId: mongoose.Types.ObjectId;
   screenshotUrl: string;
+  screenshotFileName?: string;
   storageKey?: string;
   codeSnippet?: string;
   attemptNumber: number;
@@ -22,6 +23,7 @@ const SubmissionSchema = new Schema<ISubmission>(
     studentId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     questionId: { type: Schema.Types.ObjectId, ref: 'Question', required: true, index: true },
     screenshotUrl: { type: String, required: true },
+    screenshotFileName: { type: String },
     storageKey: { type: String },
     codeSnippet: { type: String },
     attemptNumber: { type: Number, default: 1 },

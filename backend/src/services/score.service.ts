@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { Evaluation } from '../models/Evaluation';
+import { Submission } from '../models/Submission';
 import { StudentAssignment } from '../models/StudentAssignment';
 import { User } from '../models/User';
 import { getIO } from '../config/socket';
@@ -17,6 +18,7 @@ export interface LeaderboardEntry {
   completedQuestions: number;
   totalAssignedQuestions: number;
   lastEvaluationTime: Date | null;
+  hasSubmission?: boolean;
 }
 
 export class ScoreService {
@@ -59,7 +61,7 @@ export class ScoreService {
 
     return {
       totalMarks,
-      maxPossibleMarks: maxPossibleMarks || 50,
+      maxPossibleMarks: maxPossibleMarks || 80,
       percentage,
       completedQuestions: completedCount,
       totalAssignedQuestions: assignment?.questions.length || 0,
@@ -68,13 +70,39 @@ export class ScoreService {
   }
 
   /**
-   * Recalculate full leaderboard for an assessment with tie-breaker logic
+   * Recalculate full leaderboard for an assessment with tie-breaker logic (Batch-optimized)
    */
   static async getLeaderboard(assessmentId: string): Promise<LeaderboardEntry[]> {
-    // Find all student assignments for this assessment
+    // 1. Fetch all assignments with populated student and questions in 1 query
     const assignments = await StudentAssignment.find({
       assessmentId: new mongoose.Types.ObjectId(assessmentId)
-    }).populate('studentId', 'name studentId department section email');
+    })
+      .populate('studentId', 'name studentId department section email')
+      .populate('questions.questionId', 'marks');
+
+    // 2. Fetch all evaluations for this assessment in 1 query
+    const allEvaluations = await Evaluation.find({
+      assessmentId: new mongoose.Types.ObjectId(assessmentId)
+    });
+
+    // 3. Fetch all submissions for this assessment
+    const allSubmissions = await Submission.find({
+      assessmentId: new mongoose.Types.ObjectId(assessmentId)
+    });
+
+    const submittedStudentIds = new Set<string>();
+    for (const sub of allSubmissions) {
+      submittedStudentIds.add(sub.studentId.toString());
+    }
+
+    const evalMap = new Map<string, any[]>();
+    for (const ev of allEvaluations) {
+      const sId = ev.studentId.toString();
+      if (!evalMap.has(sId)) {
+        evalMap.set(sId, []);
+      }
+      evalMap.get(sId)!.push(ev);
+    }
 
     const leaderboardList: LeaderboardEntry[] = [];
 
@@ -82,34 +110,66 @@ export class ScoreService {
       const student = assign.studentId as any;
       if (!student) continue;
 
-      const scoreData = await this.calculateStudentScore(assessmentId, student._id.toString());
+      const studentIdStr = student._id.toString();
+      const studentEvals = evalMap.get(studentIdStr) || [];
+      const hasSub = submittedStudentIds.has(studentIdStr) || studentEvals.length > 0;
+
+      let totalMarks = 0;
+      let maxPossibleMarks = 0;
+      let completedCount = 0;
+      let lastEvalTime: Date | null = null;
+
+      if (assign.questions) {
+        assign.questions.forEach((q: any) => {
+          if (q.questionId && typeof q.questionId.marks === 'number') {
+            maxPossibleMarks += q.questionId.marks;
+          }
+        });
+      }
+
+      studentEvals.forEach((ev) => {
+        totalMarks += ev.marksObtained;
+        completedCount++;
+        if (!lastEvalTime || ev.evaluatedAt > lastEvalTime) {
+          lastEvalTime = ev.evaluatedAt;
+        }
+      });
+
+      const percentage = maxPossibleMarks > 0 ? Math.round((totalMarks / maxPossibleMarks) * 100 * 10) / 10 : 0;
 
       leaderboardList.push({
         rank: 0,
-        studentId: student._id.toString(),
+        studentId: studentIdStr,
         rollNumber: student.studentId || 'N/A',
         name: student.name,
         department: student.department || 'CSE',
         section: student.section || 'A',
-        totalMarks: scoreData.totalMarks,
-        maxPossibleMarks: scoreData.maxPossibleMarks,
-        percentage: scoreData.percentage,
-        completedQuestions: scoreData.completedQuestions,
-        totalAssignedQuestions: scoreData.totalAssignedQuestions,
-        lastEvaluationTime: scoreData.lastEvaluationTime
+        totalMarks,
+        maxPossibleMarks: maxPossibleMarks || 80,
+        percentage,
+        completedQuestions: completedCount,
+        totalAssignedQuestions: assign.questions?.length || 0,
+        lastEvaluationTime: lastEvalTime,
+        hasSubmission: hasSub
       });
     }
 
     // Sort by:
     // 1. Total Marks DESC
     // 2. Completed Questions DESC
-    // 3. Last Evaluation Time ASC (earlier is better)
+    // 3. Has Submissions DESC
+    // 4. Last Evaluation Time ASC (earlier is better)
     leaderboardList.sort((a, b) => {
       if (b.totalMarks !== a.totalMarks) {
         return b.totalMarks - a.totalMarks;
       }
       if (b.completedQuestions !== a.completedQuestions) {
         return b.completedQuestions - a.completedQuestions;
+      }
+      const aSub = a.hasSubmission ? 1 : 0;
+      const bSub = b.hasSubmission ? 1 : 0;
+      if (bSub !== aSub) {
+        return bSub - aSub;
       }
       if (a.lastEvaluationTime && b.lastEvaluationTime) {
         return a.lastEvaluationTime.getTime() - b.lastEvaluationTime.getTime();
@@ -140,17 +200,43 @@ export class ScoreService {
   }
 
   /**
+   * Calculate summary stats for leaderboard unlock condition (minimum 3 student submissions)
+   */
+  static async getLeaderboardStats(assessmentId: string) {
+    const allSubmissions = await Submission.find({
+      assessmentId: new mongoose.Types.ObjectId(assessmentId)
+    });
+    const allEvaluations = await Evaluation.find({
+      assessmentId: new mongoose.Types.ObjectId(assessmentId)
+    });
+
+    const activeStudentIds = new Set<string>();
+    for (const s of allSubmissions) activeStudentIds.add(s.studentId.toString());
+    for (const e of allEvaluations) activeStudentIds.add(e.studentId.toString());
+
+    const submittedStudentsCount = activeStudentIds.size;
+    return {
+      totalSubmissionsCount: allSubmissions.length,
+      submittedStudentsCount,
+      isLeaderboardStarted: submittedStudentsCount >= 3,
+      minSubmissionsRequired: 3
+    };
+  }
+
+  /**
    * Real-time Broadcast via Socket.IO
    */
   static async broadcastUpdates(assessmentId: string, updatedStudentId?: string) {
     try {
       const io = getIO();
       const leaderboard = await this.getLeaderboard(assessmentId);
+      const stats = await this.getLeaderboardStats(assessmentId);
 
       // Broadcast updated leaderboard to assessment room
       io.to(`assessment:${assessmentId}`).emit('leaderboard:update', {
         assessmentId,
         leaderboard,
+        ...stats,
         updatedAt: new Date().toISOString()
       });
 
@@ -158,6 +244,7 @@ export class ScoreService {
       io.emit('leaderboard:update', {
         assessmentId,
         leaderboard,
+        ...stats,
         updatedAt: new Date().toISOString()
       });
 

@@ -8,6 +8,9 @@ import { EvaluationModal } from '../components/EvaluationModal';
 import { QuestionDetailModal } from '../components/QuestionDetailModal';
 import { QuestionBankModal } from '../components/QuestionBankModal';
 import { AuditLogModal } from '../components/AuditLogModal';
+import { StudentSubmissionsGroup } from '../components/StudentSubmissionsGroup';
+import { ChangePasswordModal } from '../components/ChangePasswordModal';
+import { CompilerClashLogin } from '../components/CompilerClashLogin';
 import { apiRequest } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import { LeaderboardEntry, AssignedQuestionItem, SubmissionItem, DashboardStats } from '../types';
@@ -32,11 +35,12 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
-  const { user, login, switchAccount } = useAuth();
+  const { user, login } = useAuth();
 
   // Common State
   const [activeTab, setActiveTab] = useState<'questions' | 'leaderboard' | 'submissions' | 'bank'>('questions');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [assessmentInfo, setAssessmentInfo] = useState<{ id: string; title: string; status: string } | null>(null);
 
   // Student State
@@ -102,6 +106,20 @@ export default function Home() {
     }
   }, [user]);
 
+  // Periodic refresher for live data sync every 5 seconds
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      if (user.role === 'admin') {
+        fetchAdminDashboard();
+        fetchSubmissions();
+      } else if (user.role === 'student') {
+        fetchStudentDashboard();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   const fetchLeaderboard = async () => {
     try {
       const res = await apiRequest('/student/leaderboard');
@@ -144,7 +162,10 @@ export default function Home() {
     try {
       const res = await apiRequest('/admin/dashboard-stats');
       if (res.success && res.stats) {
-        setAdminStats(res.stats);
+        setAdminStats({
+          ...res.stats,
+          totalStudents: res.stats.totalStudents > 0 ? res.stats.totalStudents : 66
+        });
       }
     } catch (err) {
       console.error('Error fetching admin dashboard:', err);
@@ -184,167 +205,14 @@ export default function Home() {
     setLoginLoading(false);
   };
 
-  const demoCards = [
-    {
-      role: 'admin',
-      label: '👑 Admin (Faculty)',
-      name: 'Prof. Vikram Sharma',
-      email: 'admin@livecode.edu',
-      pass: 'AdminPassword123!',
-      desc: 'Evaluate submissions, award marks, view audit logs & manage contest.'
-    },
-    {
-      role: 'student',
-      label: '🧑‍💻 Student 1',
-      name: 'Arun Kumar',
-      email: 'arun@livecode.edu',
-      pass: 'StudentPass123!',
-      desc: 'Roll No: 24CSE001 • Section A • Has evaluated & pending submissions.'
-    },
-    {
-      role: 'student',
-      label: '🧑‍💻 Student 2',
-      name: 'Priya Sundaram',
-      email: 'priya@livecode.edu',
-      pass: 'StudentPass123!',
-      desc: 'Roll No: 24CSE042 • Section A • Currently leading Rank 1.'
-    },
-    {
-      role: 'student',
-      label: '🧑‍💻 Student 3',
-      name: 'Kavin Raj',
-      email: 'kavin@livecode.edu',
-      pass: 'StudentPass123!',
-      desc: 'Roll No: 24CSE089 • Section B • Pending evaluation ready for review.'
-    }
-  ];
-
   /* ------------------------------------------------------------- */
   /* UN-AUTHENTICATED: LIGHT THEME LANDING & LOGIN PAGE            */
   /* (Leaderboard is strictly hidden until logged in!)             */
   /* ------------------------------------------------------------- */
   if (!user) {
     return (
-      <main className="min-h-screen flex flex-col justify-between p-4 sm:p-8 bg-[#f8fafc]">
-        <div className="max-w-6xl mx-auto w-full pt-8 pb-12">
-          
-          {/* Hero Header */}
-          <div className="text-center max-w-3xl mx-auto mb-12">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-violet-50 border border-violet-200 text-violet-700 text-xs font-bold mb-4 shadow-sm">
-              <Sparkles className="w-4 h-4 text-violet-600" />
-              Department of Computer Science & Engineering
-            </div>
-            <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-slate-900 leading-tight">
-              Live Coding Challenge &{' '}
-              <span className="bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 bg-clip-text text-transparent">
-                Runtime Assessment
-              </span>
-            </h1>
-            <p className="text-slate-600 text-sm sm:text-base mt-4 max-w-2xl mx-auto leading-relaxed">
-              First-year engineering programming evaluation. Solve challenges, upload code screenshots, receive instant faculty evaluations, and unlock the live real-time leaderboard after logging in.
-            </p>
-
-            <div className="inline-flex items-center gap-2 mt-4 px-3.5 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs text-slate-600 font-semibold">
-              <Lock className="w-3.5 h-3.5 text-slate-500" />
-              Leaderboard is protected: Sign in to view live rankings
-            </div>
-          </div>
-
-          {/* Quick Demo One-Click Login Cards */}
-          <div className="mb-12">
-            <div className="flex items-center justify-between mb-4 px-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                Select a Pre-Configured Demo Account (1-Click Instant Login)
-              </h2>
-              <span className="text-xs text-slate-400 font-medium hidden sm:inline">Click any card to log in directly</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {demoCards.map((card, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => switchAccount(card.email, card.pass)}
-                  className="bg-white rounded-3xl p-5 cursor-pointer border border-slate-200/90 shadow-sm hover:shadow-xl hover:border-violet-300 transition-all flex flex-col justify-between group"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-bold text-slate-700">{card.label}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        card.role === 'admin'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : 'bg-violet-100 text-violet-800 border border-violet-200'
-                      }`}>
-                        {card.role.toUpperCase()}
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-violet-600 transition-colors">
-                      {card.name}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed font-normal">
-                      {card.desc}
-                    </p>
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-violet-600 group-hover:text-indigo-600 transition-colors">
-                    <span>Log in as this user</span>
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Manual Login Form */}
-          <div className="max-w-md mx-auto bg-white rounded-[32px] p-6 sm:p-8 border border-slate-200 shadow-xl">
-            <h3 className="text-lg font-bold text-slate-900 mb-1">Standard Sign In</h3>
-            <p className="text-xs text-slate-500 mb-6 font-medium">Enter registered student or faculty credentials</p>
-
-            <form onSubmit={handleManualLogin} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder="e.g. admin@livecode.edu or arun@livecode.edu"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-violet-600 focus:bg-white transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={passInput}
-                  onChange={(e) => setPassInput(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-violet-600 focus:bg-white transition-all"
-                />
-              </div>
-
-              {loginError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
-                  {loginError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="w-full py-3 rounded-full bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-700 hover:to-cyan-700 text-sm font-bold text-white shadow-md shadow-violet-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {loginLoading ? 'Signing in...' : 'Sign In & Unlock Leaderboard'}
-              </button>
-            </form>
-          </div>
-
-        </div>
-
-        <footer className="text-center text-xs text-slate-400 py-4 border-t border-slate-200 font-medium">
-          LiveCode Assessment Platform © 2026 • Light Theme • Real-time Socket.IO & MongoDB
-        </footer>
+      <main className="min-h-screen flex flex-col justify-center items-center bg-[#f8fafc] py-6 sm:py-10">
+        <CompilerClashLogin />
       </main>
     );
   }
@@ -361,10 +229,9 @@ export default function Home() {
           <OvalSidebar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
-            assessmentTitle={assessmentInfo?.title || '1st Year Algorithmic Sprint 2026'}
-            assessmentStatus={assessmentInfo?.status || 'LIVE'}
-            completedQuestions={studentStats?.completedQuestions ?? 1}
-            totalQuestions={studentStats?.totalQuestions ?? 5}
+            completedQuestions={studentStats?.completedQuestions ?? 0}
+            totalQuestions={studentStats?.totalQuestions ?? 6}
+            onOpenSettings={() => setShowSettingsModal(true)}
           />
 
           {/* Main Content Area */}
@@ -381,7 +248,7 @@ export default function Home() {
                     Welcome, {user.name} 👋
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium">
-                    Roll No: <span className="text-slate-900 font-semibold">{user.studentId}</span> • {user.department} • Section {user.section}
+                    {user.department || 'Computer Science & Engineering'} • Section {user.section || 'D'}
                   </p>
                 </div>
 
@@ -395,7 +262,7 @@ export default function Home() {
                       <span className="text-2xl sm:text-3xl font-black text-slate-900">
                         {studentStats?.totalMarks ?? 0}
                       </span>
-                      <span className="text-xs text-slate-400 font-bold">/{studentStats?.maxPossibleMarks ?? 50}</span>
+                      <span className="text-xs text-slate-400 font-bold">/{studentStats?.maxPossibleMarks ?? 80}</span>
                     </div>
                   </div>
 
@@ -419,14 +286,14 @@ export default function Home() {
                       <span className="text-2xl sm:text-3xl font-black text-violet-700">
                         {studentStats?.completedQuestions ?? 0}
                       </span>
-                      <span className="text-xs text-slate-400 font-bold">/{studentStats?.totalQuestions ?? 5}</span>
+                      <span className="text-xs text-slate-400 font-bold">/{studentStats?.totalQuestions ?? 6}</span>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* TAB 1: Assigned Questions Grid (Symmetrical 3x2 Grid) */}
+            {/* TAB 1: Assigned Questions Grid (Responsive 2-column Grid for Q1 to Q6) */}
             {activeTab === 'questions' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-1">
@@ -439,21 +306,21 @@ export default function Home() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {assignedQuestions.map((q, idx) => (
                     <div
                       key={q.questionId || idx}
                       onClick={() => setSelectedQuestionId(q.questionId)}
-                      className="bg-white rounded-[28px] p-5 cursor-pointer border border-slate-200/90 shadow-sm hover:shadow-xl hover:border-violet-300 transition-all flex flex-col justify-between group h-full min-h-[200px]"
+                      className="bg-white rounded-[22px] p-4 sm:p-4.5 cursor-pointer border border-slate-200/90 shadow-sm hover:shadow-xl hover:border-violet-300 transition-all flex flex-col justify-between group min-h-[165px]"
                     >
                       <div>
                         {/* Top tags */}
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="w-7 h-7 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700">
+                        <div className="flex items-center justify-between mb-2.5">
+                          <span className="w-7 h-7 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-black text-slate-800">
                             Q{q.order}
                           </span>
                           <div className="flex items-center gap-1.5">
-                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                               q.difficulty === 'easy'
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                 : q.difficulty === 'medium'
@@ -462,73 +329,41 @@ export default function Home() {
                             }`}>
                               {q.difficulty}
                             </span>
-                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-800">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">
                               {q.marks} pts
                             </span>
                           </div>
                         </div>
 
                         {/* Title */}
-                        <h4 className="text-base font-bold text-slate-900 group-hover:text-violet-600 transition-colors">
+                        <h4 className="text-sm sm:text-[15px] font-bold text-slate-900 group-hover:text-violet-600 transition-colors leading-snug">
                           {q.title}
                         </h4>
-                        <p className="text-xs text-slate-500 mt-1 font-medium">{q.category}</p>
+                        <p className="text-[11px] text-slate-500 mt-1 font-medium">{q.category}</p>
                       </div>
 
                       {/* Status badge & action */}
-                      <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
+                      <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between">
                         {q.isEvaluated ? (
                           <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold">
-                            <CheckCircle className="w-4 h-4 text-emerald-600" />
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                             <span>Awarded: {q.marksObtained}/{q.marks}</span>
                           </div>
                         ) : q.isSubmitted ? (
                           <div className="flex items-center gap-1.5 text-xs text-amber-700 font-semibold">
-                            <Clock className="w-4 h-4 animate-spin text-amber-600" />
+                            <Clock className="w-3.5 h-3.5 animate-spin text-amber-600 shrink-0" />
                             <span>Under Review</span>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400 font-medium">Pending Submission</span>
+                          <span className="text-xs text-slate-400 font-medium">Pending</span>
                         )}
 
-                        <span className="text-xs font-bold text-violet-600 group-hover:text-indigo-600 flex items-center gap-1">
-                          Solve ↗
+                        <span className="text-xs font-bold text-violet-600 group-hover:text-indigo-600 flex items-center gap-1 shrink-0">
+                          Solve →
                         </span>
                       </div>
                     </div>
                   ))}
-
-                  {/* 6th Slot: Helpful Submission Protocol Card to make the grid completely symmetrical! */}
-                  <div className="bg-gradient-to-br from-violet-50/70 via-white to-indigo-50/50 rounded-[28px] p-5 border border-dashed border-violet-200 shadow-sm flex flex-col justify-between h-full min-h-[200px]">
-                    <div>
-                      <div className="flex items-center justify-between mb-2.5">
-                        <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200 uppercase tracking-wider">
-                          Protocol
-                        </span>
-                        <BookOpen className="w-4 h-4 text-violet-600" />
-                      </div>
-                      <h4 className="text-base font-bold text-slate-900">Submission Workflow</h4>
-                      <ul className="text-xs text-slate-600 mt-2 space-y-1.5 font-medium">
-                        <li className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
-                          Code solution in your preferred IDE
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
-                          Capture code & test execution output
-                        </li>
-                        <li className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
-                          Upload screenshot for instant review
-                        </li>
-                      </ul>
-                    </div>
-                    <div className="mt-4 pt-3 border-t border-violet-100 flex items-center justify-between text-xs font-bold text-violet-700">
-                      <span>Live Scoring Active</span>
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                    </div>
-                  </div>
-
                 </div>
               </div>
             )}
@@ -556,6 +391,12 @@ export default function Home() {
             }}
           />
         )}
+
+        {/* Settings / Change Password Modal */}
+        <ChangePasswordModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+        />
       </div>
     );
   }
@@ -572,8 +413,6 @@ export default function Home() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pendingCount={adminStats?.pendingEvaluations ?? 0}
-          assessmentTitle={adminStats?.assessmentTitle || '1st Year Algorithmic Sprint 2026'}
-          assessmentStatus={adminStats?.assessmentStatus || 'LIVE'}
         />
 
         {/* Main Content Area */}
@@ -615,7 +454,7 @@ export default function Home() {
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6">
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-center">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Total Students</span>
-                <span className="text-2xl font-black text-slate-900 mt-1 block">{adminStats?.totalStudents ?? 3}</span>
+                <span className="text-2xl font-black text-slate-900 mt-1 block">{adminStats?.totalStudents || 66}</span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-center">
@@ -643,115 +482,14 @@ export default function Home() {
             </div>
           </div>
 
-          {/* TAB 1: Live Submissions Review Workspace */}
+          {/* TAB 1: Live Submissions Review Workspace (Grouped by Student Candidate) */}
           {activeTab === 'submissions' && (
-            <div className="space-y-4">
-              
-              {/* Filter Pills */}
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  {(['PENDING', 'ALL', 'EVALUATED'] as const).map((filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => setSubFilter(filter)}
-                      className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${
-                        subFilter === filter
-                          ? 'bg-slate-900 text-white shadow-sm'
-                          : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                      }`}
-                    >
-                      {filter === 'PENDING' ? '⏳ Pending Review' : filter === 'EVALUATED' ? '✓ Evaluated' : 'All Submissions'}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-xs text-slate-500 font-medium hidden sm:inline">
-                  Click any submission card to launch review studio
-                </span>
-              </div>
-
-              {/* Submission Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                {submissions
-                  .filter((s) => {
-                    if (subFilter === 'PENDING') return !s.isEvaluated;
-                    if (subFilter === 'EVALUATED') return s.isEvaluated;
-                    return true;
-                  })
-                  .map((sub) => {
-                    const backendHost = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
-                    const imgUrl = sub.screenshotUrl.startsWith('http')
-                      ? sub.screenshotUrl
-                      : `${backendHost}${sub.screenshotUrl}`;
-
-                    return (
-                      <div
-                        key={sub.id}
-                        onClick={() => setSelectedSubmission(sub)}
-                        className="bg-white rounded-[28px] p-5 cursor-pointer border border-slate-200/90 shadow-sm hover:shadow-xl hover:border-violet-300 transition-all flex flex-col justify-between group h-full min-h-[240px]"
-                      >
-                        <div>
-                          {/* Student Info & Badge */}
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-700">
-                                {sub.student?.name?.charAt(0)}
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold text-slate-900">{sub.student?.name}</p>
-                                <p className="text-[10px] text-slate-500 font-medium">{sub.student?.studentId}</p>
-                              </div>
-                            </div>
-
-                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                              sub.isEvaluated
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                : 'bg-rose-100 text-rose-800 border border-rose-200 animate-pulse'
-                            }`}>
-                              {sub.isEvaluated ? 'Evaluated' : 'Needs Review'}
-                            </span>
-                          </div>
-
-                          {/* Screenshot thumbnail preview */}
-                          <div className="h-32 w-full rounded-2xl bg-slate-900 border border-slate-200 overflow-hidden flex items-center justify-center my-3 relative shadow-inner">
-                            <img
-                              src={imgUrl}
-                              alt="Submission Thumbnail"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-3">
-                              <span className="text-[11px] font-bold text-white">
-                                {sub.question?.title}
-                              </span>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-slate-500 font-medium">
-                            Max Marks: <span className="font-bold text-slate-800">{sub.question?.marks}</span> • {sub.question?.category}
-                          </p>
-                        </div>
-
-                        {/* Marks or Action */}
-                        <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between">
-                          {sub.isEvaluated ? (
-                            <span className="text-xs font-bold text-emerald-700">
-                              Awarded: {sub.evaluation?.marksObtained} / {sub.question?.marks} pts
-                            </span>
-                          ) : (
-                            <span className="text-xs font-bold text-rose-600 flex items-center gap-1">
-                              <Flame className="w-3.5 h-3.5" /> Award Marks
-                            </span>
-                          )}
-
-                          <span className="text-xs font-bold text-violet-600 group-hover:text-indigo-600">
-                            {sub.isEvaluated ? 'Edit Marks ↗' : 'Evaluate ↗'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-
-            </div>
+            <StudentSubmissionsGroup
+              submissions={submissions}
+              subFilter={subFilter}
+              setSubFilter={setSubFilter}
+              onSelectSubmission={(sub) => setSelectedSubmission(sub)}
+            />
           )}
 
           {/* TAB 2: Leaderboard Projection View (Visible after login!) */}

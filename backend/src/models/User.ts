@@ -23,7 +23,7 @@ const UserSchema = new Schema<IUser>(
     studentId: { type: String, sparse: true, trim: true },
     year: { type: Number, default: 1 },
     department: { type: String, default: 'Computer Science & Engineering' },
-    section: { type: String, default: 'A' },
+    section: { type: String, default: 'D' },
     isActive: { type: Boolean, default: true }
   },
   { timestamps: true }

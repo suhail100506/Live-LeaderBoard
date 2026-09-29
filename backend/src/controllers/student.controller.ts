@@ -48,7 +48,7 @@ export class StudentController {
     const shuffle = (array: any[]) => [...array].sort(() => 0.5 - Math.random());
     const selectedQuestions: any[] = [];
 
-    const numNeeded = assessment.totalQuestions || 5;
+    const numNeeded = assessment.totalQuestions || 6;
 
     // Pick 2 easy, 2 medium, 1 hard if available
     const pickedEasy = shuffle(easy).slice(0, 2);
@@ -223,6 +223,7 @@ export class StudentController {
           ? {
               id: submission._id,
               screenshotUrl: submission.screenshotUrl,
+              screenshotFileName: submission.screenshotFileName,
               codeSnippet: submission.codeSnippet,
               submittedAt: submission.submittedAt,
               status: submission.status
@@ -294,8 +295,14 @@ export class StudentController {
       });
 
       if (submission) {
+        if (submission.status === 'EVALUATED') {
+          // Reset evaluation so new screenshot can be re-evaluated by faculty
+          await Evaluation.deleteMany({ submissionId: submission._id });
+        }
+
         // Update submission
         submission.screenshotUrl = relativeScreenshotUrl;
+        submission.screenshotFileName = req.file.originalname;
         submission.codeSnippet = codeSnippet || submission.codeSnippet;
         submission.submittedAt = new Date();
         submission.status = 'SUBMITTED';
@@ -307,6 +314,7 @@ export class StudentController {
           studentId: studentId,
           questionId: new mongoose.Types.ObjectId(questionId),
           screenshotUrl: relativeScreenshotUrl,
+          screenshotFileName: req.file.originalname,
           codeSnippet: codeSnippet || '',
           submittedAt: new Date(),
           status: 'SUBMITTED',
@@ -331,12 +339,76 @@ export class StudentController {
         submission: {
           id: submission._id,
           screenshotUrl: submission.screenshotUrl,
+          screenshotFileName: submission.screenshotFileName,
           submittedAt: submission.submittedAt,
           status: submission.status
         }
       });
     } catch (error: any) {
       console.error('[StudentController.submitScreenshot] Error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  static async removeSubmission(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const studentId = req.user!._id;
+      const questionId = req.body?.questionId || req.query.questionId;
+      const assessmentId = req.body?.assessmentId || req.query.assessmentId;
+
+      if (!questionId) {
+        res.status(400).json({ success: false, message: 'Question ID is required' });
+        return;
+      }
+
+      const query: any = {
+        studentId: studentId,
+        questionId: new mongoose.Types.ObjectId(questionId as string)
+      };
+      if (assessmentId) {
+        query.assessmentId = new mongoose.Types.ObjectId(assessmentId as string);
+      }
+
+      const submission = await Submission.findOne(query);
+
+      if (!submission) {
+        res.status(404).json({ success: false, message: 'Submission not found' });
+        return;
+      }
+
+      const resolvedAssessmentId = submission.assessmentId;
+
+      // Delete associated evaluation
+      await Evaluation.deleteMany({ submissionId: submission._id });
+
+      // Delete the submission
+      await Submission.deleteOne({ _id: submission._id });
+
+      // Reset question status in student assignment to 'pending'
+      await StudentAssignment.updateOne(
+        {
+          assessmentId: resolvedAssessmentId,
+          studentId: studentId,
+          'questions.questionId': new mongoose.Types.ObjectId(questionId as string)
+        },
+        {
+          $set: { 'questions.$.status': 'pending' }
+        }
+      );
+
+      // Broadcast leaderboard update
+      try {
+        await ScoreService.broadcastUpdates(resolvedAssessmentId.toString());
+      } catch (err) {
+        console.error('[StudentController.removeSubmission] Error broadcasting updates:', err);
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Submission removed successfully'
+      });
+    } catch (error: any) {
+      console.error('[StudentController.removeSubmission] Error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
@@ -349,16 +421,25 @@ export class StudentController {
       }
 
       if (!assessment) {
-        res.status(200).json({ success: true, leaderboard: [] });
+        res.status(200).json({
+          success: true,
+          leaderboard: [],
+          submittedStudentsCount: 0,
+          totalSubmissionsCount: 0,
+          isLeaderboardStarted: false,
+          minSubmissionsRequired: 3
+        });
         return;
       }
 
       const leaderboard = await ScoreService.getLeaderboard(assessment._id.toString());
+      const stats = await ScoreService.getLeaderboardStats(assessment._id.toString());
       res.status(200).json({
         success: true,
         assessmentTitle: assessment.title,
         assessmentStatus: assessment.status,
-        leaderboard
+        leaderboard,
+        ...stats
       });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });

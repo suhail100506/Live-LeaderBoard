@@ -20,7 +20,7 @@ const AssessmentSchema = new Schema<IAssessment>(
   {
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
-    totalQuestions: { type: Number, required: true, default: 5 },
+    totalQuestions: { type: Number, required: true, default: 6 },
     durationMinutes: { type: Number, required: true, default: 60 },
     status: {
       type: String,
