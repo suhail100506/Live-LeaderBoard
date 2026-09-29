@@ -26,6 +26,28 @@ const startServer = async () => {
       console.log(`[Server] Found ${userCount} existing users in database.`);
     }
 
+    // 2.1 Auto-migrate student emails and passwords to include 'cse' (e.g. sanjai.g2026cse@sece.ac.in)
+    const unmigratedStudents = await User.find({
+      role: 'student',
+      email: { $not: /cse@sece\.ac\.in$/i }
+    });
+
+    if (unmigratedStudents.length > 0) {
+      const bcrypt = (await import('bcryptjs')).default;
+      console.log(`[Server] Found ${unmigratedStudents.length} student accounts to migrate to 'cse@sece.ac.in'...`);
+      for (const student of unmigratedStudents) {
+        if (student.email.includes('@sece.ac.in') && !student.email.includes('cse@sece.ac.in')) {
+          const newEmail = student.email.replace('@sece.ac.in', 'cse@sece.ac.in').toLowerCase();
+          student.email = newEmail;
+          student.passwordHash = await bcrypt.hash(newEmail, 10);
+          await student.save();
+        }
+      }
+      console.log(`[Server] Successfully migrated ${unmigratedStudents.length} student logins and passwords with 'cse'!`);
+    } else {
+      console.log(`[Server] All student accounts already verified with 'cse@sece.ac.in' logins & passwords.`);
+    }
+
     // 3. Create HTTP & Socket.IO Server
     const server = http.createServer(app);
     initSocket(server);

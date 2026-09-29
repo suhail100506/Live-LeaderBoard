@@ -51,6 +51,47 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// Student Login Migration Endpoint (adds 'cse' to all student emails and passwords)
+app.all('/api/migrate-cse-logins', async (_req: Request, res: Response) => {
+  try {
+    const { User } = await import('./models/User');
+    const bcrypt = (await import('bcryptjs')).default;
+    const students = await User.find({ role: 'student' });
+    let updatedCount = 0;
+    const samples: any[] = [];
+
+    for (const student of students) {
+      if (student.email.includes('@sece.ac.in') && !student.email.includes('cse@sece.ac.in')) {
+        const oldEmail = student.email;
+        const newEmail = student.email.replace('@sece.ac.in', 'cse@sece.ac.in').toLowerCase();
+        student.email = newEmail;
+        student.passwordHash = await bcrypt.hash(newEmail, 10);
+        await student.save();
+        updatedCount++;
+        if (samples.length < 5) {
+          samples.push({ name: student.name, oldEmail, newEmail });
+        }
+      }
+    }
+
+    const cseCount = await User.countDocuments({
+      role: 'student',
+      email: { $regex: 'cse@sece\\.ac\\.in$', $options: 'i' }
+    });
+
+    const advisor = await User.findOne({ role: 'admin' });
+
+    res.status(200).json({
+      success: true,
+      message: `Migrated ${updatedCount} students. Total student accounts with cse: ${cseCount}/${students.length}`,
+      advisor: advisor ? { name: advisor.name, email: advisor.email, role: advisor.role } : null,
+      samples
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/student', studentRoutes);
