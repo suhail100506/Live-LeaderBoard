@@ -20,7 +20,21 @@ export class AuthController {
         return;
       }
 
-      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      let isMatch = await bcrypt.compare(password, user.passwordHash);
+
+      // Support student authentication where password equals new email (name2026cse@sece.ac.in) or old email (name2026@sece.ac.in)
+      if (!isMatch && user.role === 'student') {
+        const cleanPass = password.trim().toLowerCase();
+        const cleanUserEmail = user.email.toLowerCase().trim();
+        const oldEmailFormat = cleanUserEmail.replace('cse@sece.ac.in', '@sece.ac.in');
+
+        if (cleanPass === cleanUserEmail || cleanPass === oldEmailFormat) {
+          isMatch = true;
+          user.passwordHash = await bcrypt.hash(password, 10);
+          await user.save();
+        }
+      }
+
       if (!isMatch) {
         res.status(401).json({ success: false, message: 'Invalid credentials. Password incorrect.' });
         return;
