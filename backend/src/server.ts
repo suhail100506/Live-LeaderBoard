@@ -26,26 +26,27 @@ const startServer = async () => {
       console.log(`[Server] Found ${userCount} existing users in database.`);
     }
 
-    // 2.1 Auto-migrate student emails and passwords to include 'cse' (e.g. sanjai.g2026cse@sece.ac.in)
-    const unmigratedStudents = await User.find({
+    // 2.1 Auto-migrate student emails to include 'cse' (e.g. sanjai.g2026cse@sece.ac.in)
+    // Passwords remain completely unchanged as requested
+    const unmigratedQuery = {
       role: 'student',
-      email: { $not: /cse@sece\.ac\.in$/i }
-    });
+      email: {
+        $regex: /@sece\.ac\.in$/i,
+        $not: /cse@sece\.ac\.in$/i
+      }
+    };
+
+    const unmigratedStudents = await User.find(unmigratedQuery);
 
     if (unmigratedStudents.length > 0) {
-      const bcrypt = (await import('bcryptjs')).default;
-      console.log(`[Server] Found ${unmigratedStudents.length} student accounts to migrate to 'cse@sece.ac.in'...`);
+      console.log(`[Server] Found ${unmigratedStudents.length} student accounts to update to 'cse@sece.ac.in' (passwords unchanged)...`);
       for (const student of unmigratedStudents) {
-        if (student.email.includes('@sece.ac.in') && !student.email.includes('cse@sece.ac.in')) {
-          const newEmail = student.email.replace('@sece.ac.in', 'cse@sece.ac.in').toLowerCase();
-          student.email = newEmail;
-          student.passwordHash = await bcrypt.hash(newEmail, 10);
-          await student.save();
-        }
+        student.email = student.email.replace(/@sece\.ac\.in$/i, 'cse@sece.ac.in').toLowerCase();
+        await student.save();
       }
-      console.log(`[Server] Successfully migrated ${unmigratedStudents.length} student logins and passwords with 'cse'!`);
+      console.log(`[Server] Successfully updated ${unmigratedStudents.length} student emails. Existing password hashes preserved!`);
     } else {
-      console.log(`[Server] All student accounts already verified with 'cse@sece.ac.in' logins & passwords.`);
+      console.log(`[Server] All student accounts already verified with 'cse@sece.ac.in' emails.`);
     }
 
     // 3. Create HTTP & Socket.IO Server

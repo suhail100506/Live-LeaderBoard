@@ -103,7 +103,7 @@ export const CompilerClashLogin: React.FC<CompilerClashLoginProps> = ({ onSucces
                 required
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
-                placeholder="name.year@sece.ac.in"
+                placeholder="sanjai.g2026cse@sece.ac.in"
                 className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-sm font-semibold text-slate-900 placeholder:text-slate-400 bg-slate-50/50 transition-all"
               />
             </div>

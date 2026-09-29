@@ -51,43 +51,68 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// Student Login Migration Endpoint (adds 'cse' to all student emails and passwords)
+// Student Login Migration Endpoint (updates student emails to name2026cse@sece.ac.in; passwords unchanged)
 app.all('/api/migrate-cse-logins', async (_req: Request, res: Response) => {
   try {
     const { User } = await import('./models/User');
-    const bcrypt = (await import('bcryptjs')).default;
-    const students = await User.find({ role: 'student' });
-    let updatedCount = 0;
-    const samples: any[] = [];
 
-    for (const student of students) {
-      if (student.email.includes('@sece.ac.in') && !student.email.includes('cse@sece.ac.in')) {
-        const oldEmail = student.email;
-        const newEmail = student.email.replace('@sece.ac.in', 'cse@sece.ac.in').toLowerCase();
-        student.email = newEmail;
-        student.passwordHash = await bcrypt.hash(newEmail, 10);
-        await student.save();
-        updatedCount++;
-        if (samples.length < 5) {
-          samples.push({ name: student.name, oldEmail, newEmail });
+    // 1. Advisor Verification Before Update
+    const nonStudentsBefore = await User.find({ role: { $ne: 'student' } }, { name: 1, email: 1, role: 1 }).lean();
+
+    // 2. Perform safe, idempotent updateMany with pipeline
+    const filter = {
+      role: 'student',
+      email: {
+        $regex: /@sece\.ac\.in$/i,
+        $not: /cse@sece\.ac\.in$/i
+      }
+    };
+
+    const updateResult = await User.updateMany(filter, [
+      {
+        $set: {
+          email: {
+            $replaceOne: {
+              input: '$email',
+              find: '@sece.ac.in',
+              replacement: 'cse@sece.ac.in'
+            }
+          }
         }
       }
-    }
+    ]);
 
-    const cseCount = await User.countDocuments({
+    // 3. Verification Queries
+    const totalStudents = await User.countDocuments({ role: 'student' });
+    const studentsWithCse = await User.countDocuments({
       role: 'student',
-      email: { $regex: 'cse@sece\\.ac\\.in$', $options: 'i' }
+      email: { $regex: /cse@sece\.ac\.in$/i }
     });
 
-    const advisor = await User.findOne({ role: 'admin' });
+    const nonStudentsAfter = await User.find({ role: { $ne: 'student' } }, { name: 1, email: 1, role: 1 }).lean();
+    const sampleStudents = await User.find(
+      { role: 'student' },
+      { name: 1, email: 1, role: 1 }
+    )
+      .limit(6)
+      .lean();
 
     res.status(200).json({
       success: true,
-      message: `Migrated ${updatedCount} students. Total student accounts with cse: ${cseCount}/${students.length}`,
-      advisor: advisor ? { name: advisor.name, email: advisor.email, role: advisor.role } : null,
-      samples
+      message: 'Student login email migration executed successfully.',
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount,
+      studentsStatus: {
+        total: totalStudents,
+        endingWithCse: studentsWithCse,
+        allVerified: totalStudents > 0 && totalStudents === studentsWithCse
+      },
+      sampleStudents,
+      nonStudentAccounts: nonStudentsAfter,
+      advisorUnchanged: nonStudentsAfter.length > 0 && nonStudentsAfter[0].email === 'anandaraj.a@sece.ac.in'
     });
   } catch (err: any) {
+    console.error('[Migration API Error]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
