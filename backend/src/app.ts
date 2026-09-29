@@ -10,10 +10,26 @@ import { AdminController } from './controllers/admin.controller';
 
 const app: Application = express();
 
-// Middlewares
+// Allowed origins helper (supports comma-separated list, Vercel preview domains, and localhost)
+const rawFrontendUrls = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''));
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const clean = origin.replace(/\/$/, '');
+      if (
+        rawFrontendUrls.includes(clean) ||
+        rawFrontendUrls.includes('*') ||
+        /\.vercel\.app$/.test(clean) ||
+        /^http:\/\/localhost:\d+$/.test(clean)
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
