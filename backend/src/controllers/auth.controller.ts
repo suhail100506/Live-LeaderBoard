@@ -89,6 +89,30 @@ export class AuthController {
 
   static async getDemoAccounts(_req: Request, res: Response): Promise<void> {
     try {
+      // Safe, idempotent pipeline: add 'cse' before @sece.ac.in for all students (passwords unchanged)
+      await User.updateMany(
+        {
+          role: 'student',
+          email: {
+            $regex: /@sece\.ac\.in$/i,
+            $not: /cse@sece\.ac\.in$/i
+          }
+        },
+        [
+          {
+            $set: {
+              email: {
+                $replaceOne: {
+                  input: '$email',
+                  find: '@sece.ac.in',
+                  replacement: 'cse@sece.ac.in'
+                }
+              }
+            }
+          }
+        ]
+      );
+
       const users = await User.find({}).select('email name role studentId department section');
       res.status(200).json({
         success: true,
